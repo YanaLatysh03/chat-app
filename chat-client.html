@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Simple Chat Client</title>
+    <!-- CDN для Stomp.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+</head>
+<body>
+<h1>Chat Client Test</h1>
+<input type="text" id="roomId" placeholder="Enter room ID (e.g., 123)" value="694fb496730a95ecb0a17017">
+<input type="text" id="userId" placeholder="Enter user ID (e.g., user1)" value="user1">
+<input type="text" id="messageText" placeholder="Type your message">
+<button onclick="sendMessage()">Send</button>
+<div id="messages"></div> <!-- Здесь будут отображаться сообщения -->
+
+<script>
+    // Создаём клиент Stomp.js
+    const stompClient = new StompJs.Client({
+        brokerURL: 'ws://localhost:8080/chat-websocket'
+    }); // brokerURL — это ваш эндпоинт из WebSocketConfig
+
+    // Хранилище сообщений с их ID для быстрого удаления
+    const messagesMap = new Map();
+
+    // Функция при подключении
+    stompClient.onConnect = (frame) => {
+        // Подписка на тему комнаты (замените roomId на реальный)
+        const roomId = document.getElementById('roomId').value;
+        stompClient.subscribe('/topic/room/' + roomId, (message) => {
+            const msg = JSON.parse(message.body);
+            console.log(msg);  // Вывод в консоль (F12 в браузере)
+
+            // Отображаем в DIV для удобства
+            displayMessage(msg);
+        });
+
+        // Подписка на удаление сообщений
+        stompClient.subscribe('/topic/message-delete/' + roomId, (message) => {
+            const messageId = JSON.parse(message.body);
+            console.log('Message deleted: ' + messageId);
+
+            // Удаляем сообщение из UI
+            removeMessageFromUI(messageId);
+        });
+
+        // Подписка на онлайн статус
+        stompClient.subscribe('/topic/online-users/' + roomId, (usersOnline) => {
+            const onlineUsers = JSON.parse(usersOnline.body);
+            console.log('Online users:', onlineUsers);
+            updateOnlineUsers(onlineUsers);
+        });
+
+        console.log('Connected: ' + frame);
+    };
+
+    stompClient.onWebSocketError = (error) => {
+        console.error('Error with websocket', error);
+    };
+
+    stompClient.onStompError = (frame) => {
+        console.error('Broker reported error: ' + frame.headers['message']);
+        console.error('Additional details: ' + frame.body);
+    };
+
+    stompClient.activate();
+
+    // Функция для отображения сообщения
+    function displayMessage(msg) {
+        const messagesDiv = document.getElementById('messages');
+        const messageContainer = document.createElement('div');
+        messageContainer.className = 'message-container';
+        messageContainer.id = 'msg-' + msg.id;
+
+        const messageContent = document.createElement('div');
+        messageContent.className = 'message-content';
+        messageContent.textContent = msg.userId + ': ' + msg.text + ' (' + msg.timestamp + ')';
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = '✕';
+        console.log("DISPLAY MESSAGE ", msg)
+        deleteBtn.onclick = () => deleteMessage(msg.id);
+
+        messageContainer.appendChild(messageContent);
+        messageContainer.appendChild(deleteBtn);
+        messagesDiv.appendChild(messageContainer);
+
+        // Сохраняем ссылку на элемент
+        messagesMap.set(msg.id, messageContainer);
+    }
+
+    // Функция для удаления сообщения из UI
+    function removeMessageFromUI(messageId) {
+        const messageElement = messagesMap.get(messageId);
+        if (messageElement) {
+            messageElement.remove();
+            console.log("removeMessageFromUI ", messageId)
+            messagesMap.delete(messageId);
+        }
+    }
+
+    // Функция для удаления сообщения
+    function deleteMessage(messageId) {
+        const roomId = document.getElementById('roomId').value;
+
+        stompClient.publish({
+            destination: '/app/chat/message-delete/' + roomId,
+            body: JSON.stringify(messageId)
+        });
+    }
+
+    // Функция для обновления списка онлайн пользователей
+    function updateOnlineUsers(onlineUsers) {
+        // Создаем или обновляем элемент для отображения онлайн пользователей
+        let onlineDiv = document.getElementById('online-users');
+        if (!onlineDiv) {
+            onlineDiv = document.createElement('div');
+            onlineDiv.id = 'online-users';
+            onlineDiv.style.marginTop = '20px';
+            onlineDiv.style.padding = '10px';
+            onlineDiv.style.border = '1px solid #ccc';
+            onlineDiv.style.borderRadius = '5px';
+            document.body.insertBefore(onlineDiv, document.getElementById('messages'));
+        }
+
+        // Формируем список в столбик: имя - айди
+        let usersList = '<strong>Онлайн пользователи (' + onlineUsers.length + '):</strong><br>';
+        if (onlineUsers.length === 0) {
+            usersList += '<em>Нет пользователей онлайн</em>';
+        } else {
+            usersList += '<ul style="list-style: none; padding-left: 0; margin: 10px 0;">';
+            onlineUsers.forEach(user => {
+                usersList += '<li style="margin: 5px 0;">' +
+                    (user.username || 'Без имени') + ' - ' +
+                    (user.id || 'N/A') +
+                    '</li>';
+            });
+            usersList += '</ul>';
+        }
+
+        onlineDiv.innerHTML = usersList;
+    }
+
+    // Функция для отправки сообщения (вызывается по кнопке)
+    function sendMessage() {
+        const roomId = document.getElementById('roomId').value;
+        const userId = document.getElementById('userId').value;
+        const text = document.getElementById('messageText').value;
+
+        if (text) {
+            stompClient.publish({
+                destination: '/app/chat/' + roomId,  // Путь из @MessageMapping
+                body: JSON.stringify({ 'userId': userId, 'text': text })
+            });
+            document.getElementById('messageText').value = '';  // Очистка поля
+        }
+    }
+</script>
+</body>
+</html>
