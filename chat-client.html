@@ -12,6 +12,7 @@
 <input type="text" id="userId" placeholder="Enter user ID (e.g., user1)" value="user1">
 <input type="text" id="messageText" placeholder="Type your message">
 <button onclick="sendMessage()">Send</button>
+<div id="typingIndicator" style="color: gray; font-size: 14px; margin-top: 5px;"></div>
 <div id="messages"></div> <!-- Здесь будут отображаться сообщения -->
 
 <script>
@@ -22,18 +23,65 @@
 
     // Хранилище сообщений с их ID для быстрого удаления
     const messagesMap = new Map();
+    // ========== ПЕРЕМЕННЫЕ ДЛЯ DEBOUNCE ==========
+    let typingTimer = null;  // Таймер для задержки отправки "печатает"
+    let hideTimer = null;    // Таймер для скрытия индикатора
+    let isTypingSent = false;      // Флаг: уже отправили "печатаю" или нет
+    const FIRST_TYPING_DELAY = 150;  // Первое событие - быстро (150мс)
+    const TYPING_THROTTLE = 1000;    // Повторные события - не чаще раз в секунду
+    const HIDE_DELAY = 2000;
 
     // Функция при подключении
     stompClient.onConnect = (frame) => {
         // Подписка на тему комнаты (замените roomId на реальный)
         const roomId = document.getElementById('roomId').value;
+
         stompClient.subscribe('/topic/room/' + roomId, (message) => {
             const msg = JSON.parse(message.body);
-            console.log(msg);  // Вывод в консоль (F12 в браузере)
+            console.log(msg);
 
             // Отображаем в DIV для удобства
             displayMessage(msg);
         });
+
+        const input = document.getElementById('messageText');
+
+        // Слушаем каждое изменение в поле ввода
+        input.addEventListener('input', function() {
+
+            const currentUserId = document.getElementById('userId').value;
+            // 1. ОТМЕНЯЕМ все таймеры
+            clearTimeout(typingTimer);
+            clearTimeout(hideTimer);
+
+            // 2. Если ЕЩЁ НЕ отправляли "печатаю" - отправляем быстро
+            if (!isTypingSent) {
+                typingTimer = setTimeout(function() {
+                    stompClient.publish({
+                        destination: `/app/chat/room/${roomId}/typing`,
+                        body: JSON.stringify({
+                            userId: currentUserId,
+                            typing: true
+                        })
+                    });
+                    isTypingSent = true;  // Помечаем, что отправили
+                }, FIRST_TYPING_DELAY);
+            }
+            // Если уже отправили - не отправляем повторно
+
+            // 3. Устанавливаем таймер для "перестал печатать"
+            hideTimer = setTimeout(function() {
+                stompClient.publish({
+                    destination: `/app/chat/room/${roomId}/typing`,
+                    body: JSON.stringify({
+                        userId: currentUserId,
+                        typing: false
+                    })
+                });
+                isTypingSent = false;  // Сбрасываем флаг
+            }, HIDE_DELAY);
+        });
+
 
         // Подписка на удаление сообщений
         stompClient.subscribe('/topic/message-delete/' + roomId, (message) => {
@@ -42,6 +90,24 @@
 
             // Удаляем сообщение из UI
             removeMessageFromUI(messageId);
+        });
+
+        // ========== ПОДПИСКА НА СОБЫТИЯ ПЕЧАТИ ОТ ДРУГИХ ==========
+        stompClient.subscribe(`/topic/room/${roomId}/typing`, (message) => {
+            console.log("Сообщение пришло")
+            const data = JSON.parse(message.body);
+            const currentUserId = document.getElementById('userId').value;
+
+            // Не показываем индикатор для себя
+            if (data.userId !== currentUserId) {
+                if (data.typing === true) {
+                    // Кто-то начал печатать - показываем
+                    showTypingIndicator(data.userId);
+                } else {
+                    // Кто-то перестал печатать - скрываем
+                    hideTypingIndicator();
+                }
+            }
         });
 
         // Подписка на онлайн статус
@@ -64,6 +130,28 @@
     };
 
     stompClient.activate();
+
+    // ========== ФУНКЦИЯ: ПОКАЗАТЬ "ПЕЧАТАЕТ" ==========
+    function showTypingIndicator(userId) {
+        console.log(userId + " печатает...")
+        const el = document.getElementById("typingIndicator");
+
+        el.innerText = userId + " печатает...";
+
+        // Автоматически скроем через 3 секунды (на случай если не пришло событие "перестал")
+        clearTimeout(window.autoHideTimer);
+        window.autoHideTimer = setTimeout(function() {
+            el.innerText = "";
+        }, 3000);
+    }
+
+    // ========== ФУНКЦИЯ: СКРЫТЬ "ПЕЧАТАЕТ" ==========
+    function hideTypingIndicator() {
+        console.log("прекратил печатать")
+        const el = document.getElementById("typingIndicator");
+        el.innerText = "";
+        clearTimeout(window.autoHideTimer);
+    }
 
     // Функция для отображения сообщения
     function displayMessage(msg) {

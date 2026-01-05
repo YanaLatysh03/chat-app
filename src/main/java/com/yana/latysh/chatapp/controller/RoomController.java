@@ -2,14 +2,17 @@ package com.yana.latysh.chatapp.controller;
 
 import com.yana.latysh.chatapp.entity.Room;
 import com.yana.latysh.chatapp.service.RoomService;
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+@Data
+@AllArgsConstructor
 @RestController
 @RequestMapping("/rooms")
-@Data
 public class RoomController {
 
     private final RoomService roomService;

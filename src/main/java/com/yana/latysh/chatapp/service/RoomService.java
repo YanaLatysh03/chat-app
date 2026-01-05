@@ -3,12 +3,13 @@ package com.yana.latysh.chatapp.service;
 import com.yana.latysh.chatapp.entity.Room;
 import com.yana.latysh.chatapp.repository.RoomRepository;
 import lombok.Data;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 @Service
-@Data
+@RequiredArgsConstructor
 public class RoomService {
 
     private final RoomRepository roomRepository;
